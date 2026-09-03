@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+  <link rel="stylesheet" href="main.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+</head>
+<body>
+  <div id="app-shell">
+
+    <!-- Tab Nav -->
+    <div id="app-nav" class="d-flex border-bottom mb-0">
+      <button class="app-nav-tab active" data-module="inquiries">Inquiries</button>
+      <button class="app-nav-tab" data-module="registrations">Registrations</button>
+      <button class="app-nav-tab" data-module="returnlabel">Return Label</button>
+      <button class="app-nav-tab" data-module="mediaupload">Media Upload</button>
+    </div>
+
+    <div id="module-content">
+
+      <!-- ══════════════════════════════════════════════════════
+           INQUIRIES MODULE (unchanged)
+      ══════════════════════════════════════════════════════ -->
+      <div id="inquiries-module" class="module-panel">
+        <div id="main-view">
+          <div class="container-fluid mt-2">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h2 class="h5 mb-0">Inquiries</h2>
+              <button type="button" class="btn btn-sm btn-primary" id="add-inquiry">Add Inquiry</button>
+            </div>
+            <div id="inquiry-list">
+              <div class="inquiry-row d-flex justify-content-between align-items-center p-2 mb-2 border rounded">
+                <div class="inquiry-info"><strong></strong> <span class="text-muted"></span></div>
+                <div class="inquiry-actions">
+                  <button class="btn btn-sm btn-primary mr-1">Edit</button>
+                  <button class="btn btn-sm btn-danger">Delete</button>
+                </div>
+              </div>
+            </div>
+            <script id="inquiry-list-template" type="text/x-handlebars-template">
+              {{#each inquiries}}
+              <div class="inq-card">
+                <div class="inq-card-header" onclick="toggleInquiryCard('{{id}}')">
+                  <div class="inq-card-left">
+                    <div class="inq-card-title">
+                      <a href="{{record_url}}" target="_blank" onclick="event.stopPropagation()">{{display_name}}</a>
+                    </div>
+                    {{#if headline}}<div class="inq-card-subtitle">{{headline}}</div>{{/if}}
+                  </div>
+                  <div class="inq-card-right">
+                    {{#if (eq status "open")}}<span class="inq-status inq-status-open">Open</span>{{/if}}
+                    {{#if (eq status "closed")}}<span class="inq-status inq-status-closed">Closed</span>{{/if}}
+                    <span class="inq-chevron" id="chevron-{{id}}">▼</span>
+                  </div>
+                </div>
+                <div class="inq-card-body" id="body-{{id}}">
+                  <div class="inq-fields">
+                    {{#if context1}}<div class="inq-field"><span class="inq-field-value">{{{context1}}}</span></div>{{/if}}
+                    {{#if context2}}<div class="inq-field"><span class="inq-field-value">{{{context2}}}</span></div>{{/if}}
+                    {{#if context3}}<div class="inq-field"><span class="inq-field-value">{{{context3}}}</span></div>{{/if}}
+                    {{#if context4}}<div class="inq-field"><span class="inq-field-value">{{{context4}}}</span></div>{{/if}}
+                    {{#if context5}}<div class="inq-field"><span class="inq-field-value">{{{context5}}}</span></div>{{/if}}
+                    {{#if context6}}<div class="inq-field"><span class="inq-field-value">{{{context6}}}</span></div>{{/if}}
+                    {{#if context7}}<div class="inq-field"><span class="inq-field-value">{{{context7}}}</span></div>{{/if}}
+                  </div>
+                  <hr class="inq-divider">
+                  <div class="inq-actions">
+                    {{#unless (eq status "closed")}}
+                      <button class="inq-btn inq-btn-edit edit-btn" data-id="{{id}}">Edit</button>
+                      <button class="inq-btn close-btn" data-id="{{id}}">Close</button>
+                    {{else}}
+                      <button class="inq-btn reopen-btn" data-id="{{id}}">Reopen</button>
+                    {{/unless}}
+                    <button class="inq-btn inq-btn-danger delete-btn" data-id="{{id}}" data-name="{{display_name}}">Delete</button>
+                  </div>
+                </div>
+              </div>
+              {{/each}}
+            </script>
+          </div>
+        </div>
+
+        <div id="edit-view" style="display:none;">
+          <div class="container-fluid p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h5 class="mb-0">Edit Inquiry</h5>
+              <button type="button" class="btn btn-sm btn-link p-0" id="edit-back-btn">← Back</button>
+            </div>
+            <hr class="mt-2 mb-3">
+            <form id="edit-inquiry-form">
+              <div id="edit-dynamic-field-container"></div>
+              <div class="mt-4 d-flex justify-content-end">
+                <button type="button" id="edit-form-cancel-btn" class="btn btn-outline-secondary btn-sm mr-2">Cancel</button>
+                <button type="submit" id="edit-save-btn" class="btn btn-primary btn-sm">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div id="add-view" style="display:none;">
+          <div class="container-fluid p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h5 class="mb-0">Add Inquiry</h5>
+              <button type="button" class="btn btn-sm btn-link p-0" id="add-back-btn">← Back</button>
+            </div>
+            <hr class="mt-2 mb-3">
+            <form id="add-inquiry-form">
+              <div id="add-dynamic-field-container"></div>
+              <div class="mt-4 d-flex justify-content-end">
+                <button type="button" id="add-form-cancel-btn" class="btn btn-outline-secondary btn-sm mr-2">Cancel</button>
+                <button type="submit" id="add-submit-btn" class="btn btn-primary btn-sm">Add</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div><!-- /#inquiries-module -->
+
+
+      <!-- ══════════════════════════════════════════════════════
+           REGISTRATIONS MODULE (unchanged)
+      ══════════════════════════════════════════════════════ -->
+      <div id="registrations-module" class="module-panel" style="display:none;">
+        <div id="reg-main-view">
+          <div class="container-fluid mt-2">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h2 class="h5 mb-0">Registrations</h2>
+              <button type="button" class="btn btn-sm btn-primary" id="reg-add-btn">Register Product</button>
+            </div>
+            <div id="registrations-result"></div>
+          </div>
+        </div>
+        <div id="reg-add-view" style="display:none;">
+          <div class="container-fluid p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h5 class="mb-0">Register Product</h5>
+              <button type="button" class="btn btn-sm btn-link p-0" id="reg-add-back-btn">← Back</button>
+            </div>
+            <hr class="mt-2 mb-3">
+            <form id="reg-register-form">
+              <div class="reg-section-label mt-1">Product</div>
+              <div class="form-group mt-2">
+                <label class="font-weight-bold">Serial Number <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="reg-form-serial" name="serial_number" placeholder="Enter serial number" required>
+              </div>
+              <hr class="reg-search-divider">
+              <div class="reg-section-label">Customer</div>
+              <div class="form-group mt-2">
+                <label class="font-weight-bold">First Name</label>
+                <input type="text" class="form-control" id="reg-form-first-name" name="first_name" placeholder="First name">
+              </div>
+              <div class="form-group mt-2">
+                <label class="font-weight-bold">Last Name</label>
+                <input type="text" class="form-control" id="reg-form-last-name" name="last_name" placeholder="Last name">
+              </div>
+              <div class="form-group mt-2">
+                <label class="font-weight-bold">Country Code</label>
+                <input type="text" class="form-control" id="reg-form-country" name="country_code" placeholder="e.g. US">
+              </div>
+              <div class="form-group mt-2">
+                <label class="font-weight-bold">State / Province</label>
+                <input type="text" class="form-control" id="reg-form-state" name="state_province" placeholder="e.g. CA">
+              </div>
+              <hr class="reg-search-divider">
+              <div class="reg-section-label">Warranty</div>
+              <div class="form-group mt-2">
+                <label class="font-weight-bold">Warranty Start Date</label>
+                <input type="date" class="form-control" id="reg-form-warranty-start" name="warranty_start_date">
+              </div>
+              <div class="form-group mt-2">
+                <label class="font-weight-bold">Warranty End Date</label>
+                <input type="date" class="form-control" id="reg-form-warranty-end" name="warranty_end_date">
+              </div>
+              <div class="mt-4 d-flex justify-content-end">
+                <button type="button" id="reg-add-cancel-btn" class="btn btn-outline-secondary btn-sm mr-2">Cancel</button>
+                <button type="submit" id="reg-submit-btn" class="btn btn-primary btn-sm">Register</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div><!-- /#registrations-module -->
+
+
+      <!-- ══════════════════════════════════════════════════════
+           RETURN LABEL MODULE
+      ══════════════════════════════════════════════════════ -->
+      <div id="returnlabel-module" class="module-panel" style="display:none;">
+        <div class="container-fluid mt-2">
+
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h5 mb-0">Return Label</h2>
+            <button id="rl-refresh-btn" class="inq-btn" title="Refresh from inquiry">↻ Refresh</button>
+          </div>
+
+          <!-- Auto-populate banner -->
+          <div id="rl-banner" class="rl-banner" style="display:none;"></div>
+
+          <!-- Customer section -->
+          <div class="reg-section-label">Customer</div>
+          <div class="form-group mt-2">
+            <label>Customer Name</label>
+            <input type="text" class="form-control" id="rl-name" placeholder="Auto-filled from ticket">
+          </div>
+          <div class="form-group">
+            <label>Customer Email</label>
+            <input type="text" class="form-control" id="rl-email" readonly style="background:#f8f9fa;">
+          </div>
+
+          <hr class="reg-search-divider">
+
+          <!-- Product section -->
+          <div class="reg-section-label">Product</div>
+          <div class="form-group mt-2">
+            <label>Return Type <span class="text-danger">*</span></label>
+            <select class="form-control" id="rl-product">
+              <option value="">— Select a product —</option>
+              <option value="peak_pro_base">Peak / Peak Pro Base</option>
+              <option value="proxy_base">Proxy Base</option>
+              <option value="pivot_plus_chamber">Pivot / Plus Base &amp; Chamber Returns</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div id="rl-product-info" style="display:none;" class="rl-product-info mb-2"></div>
+
+          <!-- Custom fields — shown only when Custom is selected -->
+          <div id="rl-custom-fields" style="display:none;">
+            <div class="form-group">
+              <label>Weight (oz) <span class="text-danger">*</span></label>
+              <input type="number" class="form-control" id="rl-custom-weight" min="1" max="1120" placeholder="e.g. 32">
+            </div>
+            <div class="form-row">
+              <div class="form-group col-4">
+                <label>Length (in) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="rl-custom-length" min="1" placeholder="L">
+              </div>
+              <div class="form-group col-4">
+                <label>Width (in) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="rl-custom-width" min="1" placeholder="W">
+              </div>
+              <div class="form-group col-4">
+                <label>Height (in) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="rl-custom-height" min="1" placeholder="H">
+              </div>
+            </div>
+          </div>
+
+          <hr class="reg-search-divider">
+
+          <!-- Shipping section -->
+          <div class="reg-section-label">Shipping Address</div>
+          <div class="form-group mt-2">
+            <label>Address Line 1 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="rl-address1" placeholder="Street address">
+          </div>
+          <div class="form-group">
+            <label>Address Line 2</label>
+            <input type="text" class="form-control" id="rl-address2" placeholder="Apt, suite, unit (optional)">
+          </div>
+          <div class="form-row">
+            <div class="form-group col-7">
+              <label>City <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="rl-city">
+            </div>
+            <div class="form-group col-5">
+              <label>State <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="rl-state" maxlength="2" placeholder="CA">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>ZIP Code <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="rl-zip" maxlength="10">
+          </div>
+
+          <div class="d-flex justify-content-end mt-3 mb-2">
+            <button id="rl-generate-btn" class="hub-btn hub-btn-primary">Generate Return Label</button>
+          </div>
+          <div id="rl-status" class="hub-status mt-2" style="display:none;"></div>
+
+        </div>
+      </div><!-- /#returnlabel-module -->
+
+
+      <!-- ══════════════════════════════════════════════════════
+           MEDIA UPLOAD MODULE
+      ══════════════════════════════════════════════════════ -->
+      <div id="mediaupload-module" class="module-panel" style="display:none;">
+        <div class="container-fluid mt-2">
+
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h5 mb-0">Media Upload</h2>
+          </div>
+
+          <p style="font-size:12.5px; color:#6b7280; margin-bottom:12px;">
+            Generate a secure upload link for the customer to share photos or videos related to their ticket.
+          </p>
+
+          <div class="reg-section-label">Customer</div>
+          <div class="form-group mt-2">
+            <label>Customer Email</label>
+            <input type="text" class="form-control" id="mu-email" readonly style="background:#f8f9fa;">
+          </div>
+
+          <hr class="reg-search-divider">
+
+          <div class="reg-section-label">Link Settings</div>
+          <div class="form-group mt-2">
+            <label>Link Expiry</label>
+            <select class="form-control" id="mu-expiry">
+              <option value="3">3 days</option>
+              <option value="7" selected>7 days (default)</option>
+              <option value="14">14 days</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Max Files</label>
+            <select class="form-control" id="mu-max-files">
+              <option value="3">3 files</option>
+              <option value="5" selected>5 files (default)</option>
+              <option value="10">10 files</option>
+            </select>
+          </div>
+
+          <div class="d-flex justify-content-end mt-3 mb-2">
+            <button id="mu-generate-btn" class="hub-btn hub-btn-primary">Generate Upload Link</button>
+          </div>
+          <div id="mu-status" class="hub-status mt-2" style="display:none;"></div>
+
+          <div id="mu-result" class="hub-result-card mt-3" style="display:none;">
+            <div class="reg-section-label mb-1">Customer upload link</div>
+            <div class="hub-link-row">
+              <span id="mu-link-text" class="hub-link-text"></span>
+              <button id="mu-copy-btn" class="hub-btn hub-btn-outline ml-2">Copy</button>
+            </div>
+            <p style="font-size:11px; color:#6b7280; margin-top:6px; margin-bottom:0;">
+              Link posted to reply composer. Send to customer in your reply.
+            </p>
+          </div>
+
+        </div>
+      </div><!-- /#mediaupload-module -->
+
+    </div><!-- /#module-content -->
+  </div><!-- /#app-shell -->
+
+  <script src="https://static.zdassets.com/zendesk_app_framework_sdk/2.0/zaf_sdk.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/handlebars@4.3.3/dist/handlebars.min.js"></script>
+  <script src="modules/registrations.js"></script>
+  <script src="modules/inquiries.js"></script>
+  <script src="modules/returnlabel.js"></script>
+  <script src="modules/mediaupload.js"></script>
+  <script src="main.js"></script>
+</body>
+<footer>
+  <a href="https://form.asana.com/?k=pZ2OeCkDK35PhUfT_EW6Hg&d=130776721651678" target="_blank">Report bugs</a>
+</footer>
+</html>

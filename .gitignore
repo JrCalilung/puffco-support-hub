@@ -1,0 +1,12 @@
+# Build artifacts
+*.zip
+*.pyc
+__pycache__/
+.env
+.DS_Store
+node_modules/
+
+# Secrets — never commit
+*.pem
+*.key
+secrets.json

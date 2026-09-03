@@ -1,0 +1,604 @@
+footer {
+    font-size: 10px;
+    padding-top: 20px;
+}
+
+.data{
+    color: #363;
+    padding-left: 6px;
+}
+
+#content td {
+    font-size: 12px;
+    padding-top: 2px;
+}
+
+.inquiry-row {
+    background-color: #fff;
+    font-size: 14px;
+    min-height: 120px; /* Make rows taller to fit more context */
+    padding-top: 0.8rem;
+    padding-bottom: 0.8rem;
+    gap: 0.75rem; /* Space between flex children to prevent text bleed */
+}
+
+/* Small inner padding on each direct child to further separate text blocks */
+.inquiry-row > div {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+}
+
+/* Inquiry Content Structure */
+.inquiry-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.inquiry-title {
+    gap: 1rem;
+}
+
+.inquiry-title a {
+    text-decoration: none;
+    color: #2c3e50;
+}
+
+.inquiry-title a:hover {
+    text-decoration: underline;
+    color: #0056b3;
+}
+
+.inquiry-detail-row {
+    gap: 1rem;
+}
+
+.inquiry-info strong {
+    display: block; /* Puts the part number on a new line if needed, or keeps it tidy */
+}
+
+.inquiry-info strong {
+    font-size: 13px;
+    color: #2f3941;
+}
+/* Adjusting the H2 for Zendesk Sidebar aesthetic */
+h2 {
+    color: #2f3941;
+    font-weight: 600;
+}
+
+/* Make outline buttons pop slightly more */
+.btn-outline-primary {
+    border-width: 1.5px;
+    font-weight: 500;
+}
+
+.btn-outline-danger {
+    border-width: 1.5px;
+    font-weight: 500;
+}
+
+/* Lock the action buttons to prevent resizing */
+.inquiry-actions {
+    flex-shrink: 0;
+    display: flex;
+    gap: 0.25rem;
+    min-width: fit-content;
+}
+
+.inquiry-actions button {
+    flex-shrink: 0;
+}
+
+/* Optional: Ensure the background of the row stays white 
+   so the hollow buttons are easy to see */
+.inquiry-row {
+    background-color: #ffffff;
+    border: 1px solid #d8dcde;
+}
+
+.modal-footer-custom {
+    position: sticky;
+    bottom: 10px; /* Raise the footer 10px above the bottom */
+    background: white;
+    padding: 16px 24px 16px 24px; /* More padding for visibility */
+    border-top: 1px solid #d8dcde;
+    margin-bottom: 0;
+    z-index: 1050;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
+}
+
+body {
+    /* Ensures the modal background is consistent */
+    background-color: transparent;
+}
+
+label {
+    font-size: 12px;
+    margin-bottom: 4px;
+    color: #495057;
+}
+
+.form-control {
+    font-size: 13px;
+    height: 38px;
+}
+
+.form-text {
+    font-size: 11px;
+}
+
+/* Link styles (previously .inquiry-info a rules) */
+a {
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+    color: #0056b3;
+}
+
+/* Force Select2 to inherit font styles from the parent form-group */
+.select2-container--default .select2-selection--single .select2-selection__rendered,
+.select2-container--default .select2-results__option {
+    font-family: inherit !important;
+    font-size: inherit !important;
+    font-weight: inherit !important;
+}
+
+/* Ensure the container itself respects the parent's font stack */
+.select2-container {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Match Bootstrap's specific input text color and sizing */
+.select2-container--default .select2-selection--single {
+    height: calc(1.5em + 0.75rem + 2px) !important;
+    border: 1px solid #ced4da !important;
+    display: flex !important;
+    align-items: center !important;
+}
+
+/* Collapsible Section Styles */
+.section-container {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid #d8dcde;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.section-header {
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #d8dcde;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    user-select: none;
+    transition: background-color 0.2s ease;
+}
+
+.section-header:hover {
+    background-color: #eeeeee;
+}
+
+.section-header-title {
+    font-weight: 600;
+    color: #2f3941;
+    margin: 0;
+    font-size: 14px;
+}
+
+.section-toggle-icon {
+    font-size: 14px;
+    transition: transform 0.3s ease;
+    color: #888;
+}
+
+.section-toggle-icon.collapsed {
+    transform: rotate(-90deg);
+}
+
+.section-content {
+    padding: 1rem;
+    max-height: 1000px;
+    overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+}
+
+.section-content.collapsed {
+    max-height: 0;
+    padding: 0 1rem;
+}
+
+/* paste below */
+.inq-card {
+  border: 0.5px solid #d1d5db;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  background: #fff;
+}
+
+.inq-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.inq-card-header:hover { background: #f9fafb; }
+
+.inq-card-left { flex: 1; min-width: 0; }
+
+.inq-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #111;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inq-card-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.inq-card-title a:hover { text-decoration: underline; }
+
+.inq-card-subtitle {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inq-card-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.inq-status {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 99px;
+}
+
+.inq-status-open   { background: #FCEBEB; color: #A32D2D; }
+.inq-status-closed { background: #f3f4f6; color: #6b7280; }
+
+.inq-chevron {
+  font-size: 9px;
+  color: #9ca3af;
+  transition: transform 0.2s ease;
+  display: inline-block;
+}
+
+.inq-chevron.open { transform: rotate(180deg); }
+
+.inq-card-body {
+  display: none;
+  border-top: 0.5px solid #e5e7eb;
+  padding: 10px 14px;
+}
+
+.inq-card-body.visible { display: block; }
+
+.inq-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin-bottom: 10px;
+}
+
+.inq-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inq-field-value {
+  font-size: 12.5px;
+  color: #374151;
+}
+
+.inq-divider {
+  border: none;
+  border-top: 0.5px solid #e5e7eb;
+  margin: 8px 0;
+}
+
+.inq-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.inq-btn {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 0.5px solid #d1d5db;
+  background: transparent;
+  color: #111;
+  cursor: pointer;
+}
+
+.inq-btn-edit   {
+     border-color: #015481;
+      color: #015481; 
+}
+
+.inq-btn:hover { background: #f3f4f6; }
+
+.inq-btn-danger       { color: #A32D2D; border-color: #f0a0a0; }
+.inq-btn-danger:hover { background: #FCEBEB; }
+
+/* ── App Shell Nav ─────────────────────────────────────────────────────────── */
+#app-nav {
+  padding: 0 8px;
+  background: #fff;
+  gap: 4px;
+}
+
+.app-nav-tab {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  margin-bottom: -1px; /* sits flush on the border-bottom of #app-nav */
+}
+
+.app-nav-tab:hover {
+  color: #2f3941;
+}
+
+.app-nav-tab.active {
+  color: #015481;
+  border-bottom-color: #015481;
+  font-weight: 600;
+}
+
+/* ── Registrations Module ──────────────────────────────────────────────────── */
+
+/* Serial search row */
+.reg-search-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.reg-search-row input {
+  flex: 1;
+  font-size: 13px;
+  height: 32px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  padding: 0 8px;
+  color: #2f3941;
+}
+
+.reg-search-row button {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 0.5px solid #015481;
+  background: transparent;
+  color: #015481;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.reg-search-row button:hover {
+  background: #f0f7ff;
+}
+
+/* Section labels */
+.reg-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+  margin-top: 10px;
+}
+
+.reg-search-divider {
+  border: none;
+  border-top: 0.5px solid #e5e7eb;
+  margin: 10px 0;
+}
+
+/* Registration result cards — mirrors .inq-card */
+.reg-card {
+  border: 0.5px solid #d1d5db;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  background: #fff;
+}
+
+.reg-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+}
+
+.reg-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #111;
+}
+
+.reg-card-subtitle {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.reg-card-body {
+  border-top: 0.5px solid #e5e7eb;
+  padding: 10px 14px;
+}
+
+.reg-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+}
+
+.reg-field-label {
+  font-size: 11px;
+  color: #6b7280;
+  margin-bottom: 1px;
+}
+
+.reg-field-value {
+  font-size: 12.5px;
+  color: #374151;
+  font-weight: 500;
+}
+
+/* Warranty status badges — mirrors .inq-status */
+.reg-status {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+
+.reg-status-active  { background: #e6f4ea; color: #1e6e34; }
+.reg-status-expired { background: #f3f4f6; color: #6b7280; }
+.reg-status-none    { background: #FCEBEB; color: #A32D2D; }
+
+.reg-divider {
+  border: none;
+  border-top: 0.5px solid #e5e7eb;
+  margin: 8px 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PUFFCO SUPPORT HUB — Return Label & Media Upload additions
+   Designed to match the Inquiry Tracker's existing design language
+════════════════════════════════════════════════════════════════════ */
+
+/* Hub action buttons — match .inq-btn style */
+.hub-btn {
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 0.5px solid #d1d5db;
+  background: transparent;
+  color: #111;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.hub-btn:hover { background: #f3f4f6; }
+
+.hub-btn-primary {
+  background: #015481;
+  color: #fff;
+  border-color: #015481;
+  font-weight: 500;
+}
+
+.hub-btn-primary:hover { background: #013d60; }
+
+.hub-btn-primary:disabled {
+  background: #9ca3af;
+  border-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.hub-btn-outline {
+  border-color: #015481;
+  color: #015481;
+}
+
+.hub-btn-outline:hover { background: #f0f7ff; }
+
+/* Status messages — match .inq-status pill aesthetic but full-width */
+.hub-status {
+  font-size: 12.5px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.hub-status.success { background: #e6f4ea; color: #1e6e34; border: 0.5px solid #a8d5b5; }
+.hub-status.error   { background: #FCEBEB; color: #A32D2D; border: 0.5px solid #f0a0a0; }
+.hub-status.info    { background: #f0f7ff; color: #015481; border: 0.5px solid #bdd7ee; }
+
+/* Product info box — matches .reg-card style */
+.rl-product-info {
+  border: 0.5px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #f9fafb;
+  font-size: 12px;
+  color: #374151;
+  line-height: 1.8;
+}
+
+.rl-product-info span { display: block; }
+
+/* Upload link result card — matches .inq-card / .reg-card */
+.hub-result-card {
+  border: 0.5px solid #d1d5db;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: #fff;
+}
+
+.hub-link-row {
+  display: flex;
+  align-items: center;
+  background: #f9fafb;
+  border: 0.5px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.hub-link-text {
+  font-size: 12px;
+  color: #015481;
+  word-break: break-all;
+  flex: 1;
+}
+
+/* ── Return Label banner ─────────────────────────────────────────────────────── */
+.rl-banner {
+  font-size: 12.5px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+  border-left: 3px solid;
+}
+.rl-banner-success { background: #e6f4ea; color: #1e6e34; border-color: #1e6e34; }
+.rl-banner-info    { background: #f0f7ff; color: #015481; border-color: #015481; }
+.rl-banner-warning { background: #fff8e7; color: #92600a; border-color: #f0a020; }
+.rl-banner-error   { background: #FCEBEB; color: #A32D2D; border-color: #A32D2D; }

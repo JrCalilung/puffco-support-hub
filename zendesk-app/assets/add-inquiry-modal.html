@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+  <link rel="stylesheet" href="main.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+</head>
+<body style="background-color: #fff;">
+  <div class="container-fluid p-4">
+    <h3>Add New Inquiry</h3>
+    <hr>
+    <form id="add-inquiry-form">
+        <div id="dynamic-field-container"></div>
+
+        <div class="modal-footer-custom mt-4 d-flex justify-content-end">
+      <button type="button" id="cancel-btn" class="btn btn-outline-secondary mr-2">Cancel</button>
+      <button type="submit" id="add-btn" class="btn btn-primary">Add</button>
+    </div>
+    </form>
+  </div>
+
+  <script src="https://static.zdassets.com/zendesk_app_framework_sdk/2.0/zaf_sdk.min.js"></script>
+
+  
+  <script>
+    var client = ZAFClient.init();
+    // console.log(client);
+    document.addEventListener('DOMContentLoaded', async function() {
+
+        const customObjectKey = 'inquiry'; // Change as needed
+        const container = document.getElementById('dynamic-field-container');
+        container.innerHTML = '<p>Loading fields...</p>';
+
+        // renderDynamicForm(schema);
+        //Get all available fields 
+        const fieldData = await client.request({
+            url: `/api/v2/custom_objects/${customObjectKey}/fields`,
+            type: 'GET'
+        });
+        // 2. Initial Filter: Remove inactive, ticket_id, and [hidden]
+        const allAvailableFields = fieldData.custom_object_fields.filter(field => {
+            const isHidden = field.description?.toLowerCase().includes('[hidden]');
+            return field.key !== 'ticket_id' && field.active === true && !isHidden;
+        });
+        // console.log(allAvailableFields);
+        const inquiryTypeField = allAvailableFields.find(f => f.key === 'inquiry_type');
+        const productFamilyField = allAvailableFields.find(f => f.key === 'product_family');
+        renderInitialUI(inquiryTypeField);
+
+        function renderInitialUI(typeField){
+            container.innerHTML = `
+                <div class="form-group mt-3">
+                    <label class="font-weight-bold">${typeField.title} <span class="text-danger">*</span></label>
+                    <select class="form-control" id="inquiry_type_selector" name="inquiry_type" required>
+                        <option value="" disabled selected>Select Category...</option>
+                        ${typeField.custom_field_options.map(opt => `<option value="${opt.value}">${opt.name}</option>`).join('')}
+                    </select>
+                </div>
+                <div id="conditional-fields"></div>
+            `;
+
+            document.getElementById('inquiry_type_selector').addEventListener('change', function(e) {
+                const chosenType = e.target.value;
+                // console.log(chosenType);
+                updateDynamicFields(chosenType);
+            });
+        }
+
+
+        async function updateDynamicFields(chosenType) {
+            const conditionalContainer = document.getElementById('conditional-fields');
+            
+            // If inquiry type is 'product_issue', show ProductFamily selector first
+            if (chosenType === 'product_issue') {
+                renderProductUI(conditionalContainer);
+                return;
+            }
+
+            // For other inquiry types, proceed normally
+            renderFieldsForType(chosenType, conditionalContainer);
+        }
+
+        function renderProductUI(targetDiv) {
+            const productFamilyField = allAvailableFields.find(f => f.key === 'product_family');
+            if (!productFamilyField) {
+                console.warn('ProductFamily field not found');
+                return;
+            }
+
+            // Create ProductFamily dropdown
+            const familyContainer = document.createElement('div');
+            familyContainer.className = 'form-group mt-3';
+            familyContainer.innerHTML = `
+                <label for="product_family_selector" class="font-weight-bold">${productFamilyField.title} <span class="text-danger">*</span></label>
+                <select class="form-control" id="product_family_selector" required>
+                    <option value="" disabled selected>Select ${productFamilyField.title}...</option>
+                    ${productFamilyField.custom_field_options.map(opt => `<option value="${opt.value}">${opt.name}</option>`).join('')}
+                </select>
+            `;
+
+            // Clear and add the family selector
+            targetDiv.innerHTML = '';
+            targetDiv.appendChild(familyContainer);
+
+            // Add container for part selector
+            const partContainer = document.createElement('div');
+            partContainer.id = 'part-selector-container';
+            targetDiv.appendChild(partContainer);
+
+            // Add container for remaining fields
+            const remainingFieldsContainer = document.createElement('div');
+            remainingFieldsContainer.id = 'remaining-fields-container';
+            targetDiv.appendChild(remainingFieldsContainer);
+
+            // Listen for ProductFamily selection
+            document.getElementById('product_family_selector').addEventListener('change', async function(e) {
+                const selectedFamily = this.value;
+                if (!selectedFamily) return;
+
+                // Store selected family for filtering device options
+                window.selectedProductFamily = selectedFamily;
+
+                // Render the part dropdown
+                renderPartSelector(selectedFamily, partContainer, remainingFieldsContainer);
+            });
+        }
+
+        // Helper that loads all paginated records for a custom object using cursor pagination
+        async function fetchAllCustomObjectRecords(objType) {
+            const all = [];
+            let afterCursor = undefined;
+            const pageSize = 100;
+
+            do {
+                const url = `/api/v2/custom_objects/${objType}/records?page[size]=${pageSize}` + (afterCursor ? `&page[after]=${afterCursor}` : '');
+                const res = await client.request({ url, type: 'GET' });
+                all.push(...(res.custom_object_records || []));
+                afterCursor = res.meta?.after_cursor;
+            } while (afterCursor);
+
+            return all;
+        }
+
+        async function renderPartSelector(productFamilyId, targetDiv, remainingFieldsContainer) {
+            try {
+                // Fetch all parts and filter by product_family
+                const partRecords = await fetchAllCustomObjectRecords('product');
+                console.log('Fetched parts:', partRecords);
+                let filteredParts = partRecords.filter(rec => rec.custom_object_fields.product_family === productFamilyId);
+                // Sort by item_type, then by name, with 'Other' at the bottom
+                filteredParts = filteredParts.sort((a, b) => {
+                    const aType = a.custom_object_fields.item_type || '';
+                    const bType = b.custom_object_fields.item_type || '';
+                    if (aType !== bType) {
+                        return aType.localeCompare(bType);
+                    }
+                    const aName = a.name || '';
+                    const bName = b.name || '';
+                    const aIsOther = /other/i.test(aName);
+                    const bIsOther = /other/i.test(bName);
+                    if (aIsOther && !bIsOther) return 1;
+                    if (!aIsOther && bIsOther) return -1;
+                    return aName.localeCompare(bName);
+                });
+                filteredParts = filteredParts.map(rec => ({ value: rec.id, label: rec.name }));
+
+                // Create part dropdown
+                const partContainer = document.createElement('div');
+                partContainer.className = 'form-group mt-3';
+                partContainer.innerHTML = `
+                    <label for="part_selector" class="font-weight-bold">Part <span class="text-danger">*</span></label>
+                    <select class="form-control" id="part_selector" required>
+                        <option value="" disabled selected>Select Part...</option>
+                        ${filteredParts.map(part => `<option value="${part.value}" data-part-id="${part.value}">${part.label}</option>`).join('')}
+                    </select>
+                `;
+
+                targetDiv.innerHTML = '';
+                targetDiv.appendChild(partContainer);
+
+                // // Make the part dropdown searchable
+                // $(`#part_selector`).select2({
+                //     placeholder: 'Search Part...',
+                //     width: '100%'
+                // });
+
+                // Listen for part selection
+                document.getElementById('part_selector').addEventListener('change', async function(e) {
+                    const selectedPartId = this.value;
+                    if (!selectedPartId) return;
+
+                    try {
+                        // Fetch the part record to check item_type
+                        const partData = await client.request({
+                            url: `/api/v2/custom_objects/product/records/${selectedPartId}`,
+                            type: 'GET'
+                        });
+
+                        const itemType = partData.custom_object_record.custom_object_fields.item_type;
+                        window.selectedPartItemType = itemType;
+
+                        // Render the remaining fields with device filtered/hidden based on item_type
+                        await renderFieldsForType('product_issue', remainingFieldsContainer);
+                    } catch (err) {
+                        console.error('Failed to fetch part data:', err);
+                    }
+                });
+            } catch (err) {
+                console.error('Failed to fetch parts:', err);
+            }
+        }
+
+        async function renderFieldsForType(chosenType, conditionalContainer) {
+            conditionalContainer.innerHTML = '<p class="text-muted">Loading specific fields...</p>';
+            console.log('Chosen Type:', chosenType);
+            // FILTER LOGIC: Match [visibility:chosenType] OR [visibility:global]
+            let filteredFields = allAvailableFields.filter(field => {
+                if (field.key === 'inquiry_type') return false; // Already rendered
+                if (field.key === 'ticket_id') return false; // ticket already linked
+                if (field.key === 'status') return false; // Auto-assigned to 'open' on creation
+                if (field.key === 'product_family' && chosenType === 'product_issue') return false; // Already handled separately for 'product_issue'
+                if (field.key === 'part' && chosenType === 'product_issue') return false; // Already rendered
+                
+                const desc = field.description?.toLowerCase() || '';
+                const isSearchable = desc.includes('[searchable]');
+                const isGlobal = desc.includes('[visibility:global]');
+                const isSpecific = desc.includes(`[visibility:${chosenType.toLowerCase()}]`);
+                
+                return isGlobal || isSpecific;
+            });
+
+            // If part item_type is 'battery' or 'base', exclude device field
+            if (chosenType === 'product_issue' && window.selectedPartItemType && 
+                (window.selectedPartItemType === 'battery' || window.selectedPartItemType === 'base' || window.selectedPartItemType === 'heated_loading_tool' || window.selectedPartItemType === 'travel_glass')) {
+                filteredFields = filteredFields.filter(field => field.key !== 'device');
+                filteredFields = filteredFields.filter(field => field.key !== 'device_serial_number');
+            }
+
+            console.log(filteredFields);
+
+            const schema = await buildDynamicSchema(filteredFields);
+            renderDynamicForm(schema, conditionalContainer);
+        }
+
+        async function buildDynamicSchema(visibleFields){
+        const schema = await Promise.all(visibleFields.map(async (field) => {
+            // Determine searchable flag from field metadata or description tag
+            const desc = (field.description || '').toLowerCase();
+            const isSearchable = field.searchable || desc.includes('[searchable]');
+
+            const baseField = {
+                id: field.id,
+                key: field.key,
+                label: field.title,
+                type: field.type,
+                description: field.description,
+                // Make field required when it is explicitly marked as required in schema or via [required] in description
+                required: field.required || desc.includes('[required]'),
+                searchable: isSearchable
+            };
+
+            // 2. Handle standard Dropdowns
+            if (field.type === 'dropdown') {
+                return {
+                    ...baseField,
+                    renderType: 'select',
+                    options: field.custom_field_options.map(opt => ({ value: opt.value, label: opt.name }))
+                };
+            }
+
+            // 3. Handle Lookups (The "evolved" part)
+            if (field.type === 'lookup') {
+                // target will look like 'zen:custom_object:product'
+                const objType = field.relationship_target_type.replace('zen:custom_object:', '');
+                try {
+                    // Load all pages from the lookup object's records (cursor pagination)
+                    let records = await fetchAllCustomObjectRecords(objType);
+                    // Sort helpers
+                    const sortByTypeAndName = (getType, getName) => (a, b) => {
+                        const aType = getType(a) || '';
+                        const bType = getType(b) || '';
+                        if (aType !== bType) {
+                            return aType.localeCompare(bType);
+                        }
+                        const aName = getName(a) || '';
+                        const bName = getName(b) || '';
+                        const aIsOther = /other/i.test(aName);
+                        const bIsOther = /other/i.test(bName);
+                        if (aIsOther && !bIsOther) return 1;
+                        if (!aIsOther && bIsOther) return -1;
+                        return aName.localeCompare(bName);
+                    };
+                    // Filter by item_type if this is a device field
+                    if (field.key === 'device') {
+                        const validTypes = ['base', 'battery', 'hash_vaporizer'];
+                        records = records.filter(rec => validTypes.includes(rec.custom_object_fields.item_type));
+                        if (window.selectedProductFamily) {
+                            records = records.filter(rec => rec.custom_object_fields.product_family === window.selectedProductFamily);
+                        }
+                        records = records.sort(sortByTypeAndName(
+                            rec => rec.custom_object_fields.item_type,
+                            rec => rec.name
+                        ));
+                    }
+                    else if (field.key === 'part') {
+                        records = records.filter(rec => rec.custom_object_fields.item_class === 'part');
+                        if (window.selectedProductFamily) {
+                            records = records.filter(rec => rec.custom_object_fields.product_family === window.selectedProductFamily);
+                        }
+                        records = records.sort(sortByTypeAndName(
+                            rec => rec.custom_object_fields.item_type,
+                            rec => rec.name
+                        ));
+                    }
+                    else if (field.key === 'issue') {
+                        if (window.selectedProductFamily) {
+                            records = records.filter(rec => rec.custom_object_fields.product_family === window.selectedProductFamily);
+                        }
+                        const getIssueItemType = (rec) => rec.custom_object_fields?.item_type || rec.custom_object_fields?.issue_code?.item_type;
+                        if (window.selectedPartItemType) {
+                            records = records.filter(rec => getIssueItemType(rec) === window.selectedPartItemType);
+                        }
+                        records = records.sort(sortByTypeAndName(
+                            getIssueItemType,
+                            rec => rec.name
+                        ));
+                    }
+                    else if (field.key === 'inquiry_subtype') {
+                        const selectedInquiryType = document.getElementById('inquiry_type_selector')?.value;
+                        if (selectedInquiryType) {
+                            records = records.filter(rec => rec.custom_object_fields.inquiry_type === selectedInquiryType);
+                        }
+                    }
+                    return {
+                        ...baseField,
+                        renderType: 'select',
+                        options: records.map(rec => ({ 
+                            value: rec.id, 
+                            label: rec.name || rec.external_id || rec.id 
+                        }))
+                    };
+                } catch (err) {
+                    console.error(`Could not load lookup for ${objType}`, err);
+                    return { ...baseField, renderType: 'text' }; // Fallback
+                }
+            }
+
+            // 4. Default to Free Text
+            return {
+                ...baseField,
+                renderType: field.type === 'textarea' ? 'textarea' : 'text'
+            };
+        }));
+
+        return schema;
+    }
+    
+        function renderDynamicForm(schema, targetDiv) {
+        targetDiv.innerHTML = '';
+        
+        // Group fields by section
+        const sections = {};
+        const unsectionedFields = [];
+        
+        schema.forEach(field => {
+            // Check if field has a section marker in its description
+            const sectionMatch = (field.description || '').match(/\[section:([^\]]+)\]/i);
+            if (sectionMatch) {
+                const sectionName = sectionMatch[1];
+                if (!sections[sectionName]) {
+                    sections[sectionName] = [];
+                }
+                sections[sectionName].push(field);
+            } else {
+                unsectionedFields.push(field);
+            }
+        });
+        
+        // Render unsectioned fields first
+        unsectionedFields.forEach(field => {
+            const formGroup = document.createElement('div');
+            formGroup.className = 'form-group mt-3';
+            const label = `<label for="${field.key}" class="font-weight-bold">${field.label} ${field.required ? '<span class="text-danger">*</span>' : ''}</label>`;
+            
+            let inputHtml = field.renderType === 'select' 
+                ? `<select class="form-control" id="${field.key}" name="${field.key}" ${field.required ? 'required' : ''}>
+                    <option value="" disabled selected>Select ${field.label}...</option>
+                    ${field.options.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('')}
+                   </select>`
+                : `<input type="text" class="form-control" id="${field.key}" name="${field.key}" placeholder="Enter ${field.label}" ${field.required ? 'required' : ''}>`;
+
+            formGroup.innerHTML = label + inputHtml;
+            targetDiv.appendChild(formGroup);
+
+            // Initialize Select2 for dropdowns
+            if (field.renderType === 'select' && field.searchable) {
+                $(`#${field.key}`).select2({
+                    placeholder: `Search ${field.label}...`,
+                    width: '100%'
+                });
+            }
+        });
+        
+        // Render sectioned fields
+        Object.entries(sections).forEach(([sectionName, fields]) => {
+            const sectionContainer = document.createElement('div');
+            sectionContainer.className = 'section-container';
+            
+            const sectionHeader = document.createElement('div');
+            sectionHeader.className = 'section-header';
+            sectionHeader.innerHTML = `
+                <h5 class="section-header-title">${sectionName}</h5>
+                <span class="section-toggle-icon collapsed">▼</span>
+            `;
+            
+            const sectionContent = document.createElement('div');
+            sectionContent.className = 'section-content collapsed';
+            
+            // Render fields within the section
+            fields.forEach(field => {
+                const formGroup = document.createElement('div');
+                formGroup.className = 'form-group mt-3';
+                const label = `<label for="${field.key}" class="font-weight-bold">${field.label} ${field.required ? '<span class="text-danger">*</span>' : ''}</label>`;
+                
+                let inputHtml = field.renderType === 'select' 
+                    ? `<select class="form-control" id="${field.key}" name="${field.key}" ${field.required ? 'required' : ''}>
+                        <option value="" disabled selected>Select ${field.label}...</option>
+                        ${field.options.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('')}
+                       </select>`
+                    : `<input type="text" class="form-control" id="${field.key}" name="${field.key}" placeholder="Enter ${field.label}" ${field.required ? 'required' : ''}>`;
+
+                formGroup.innerHTML = label + inputHtml;
+                sectionContent.appendChild(formGroup);
+
+                // Initialize Select2 for dropdowns
+                if (field.renderType === 'select' && field.searchable) {
+                    $(`#${field.key}`).select2({
+                        placeholder: `Search ${field.label}...`,
+                        width: '100%'
+                    });
+                }
+            });
+            
+            sectionContainer.appendChild(sectionHeader);
+            sectionContainer.appendChild(sectionContent);
+            targetDiv.appendChild(sectionContainer);
+            
+            // Add click handler for collapse/expand
+            sectionHeader.addEventListener('click', function() {
+                const icon = this.querySelector('.section-toggle-icon');
+                sectionContent.classList.toggle('collapsed');
+                icon.classList.toggle('collapsed');
+            });
+        });
+    }
+
+        document.getElementById('add-inquiry-form').addEventListener('submit', async function(e) {
+            e.preventDefault(); // Stop page refresh
+            
+            const btn = document.getElementById('add-btn');
+            btn.disabled = true;
+            btn.innerText = 'Creating record...';
+
+            try {
+                // 1. Get the Ticket ID from the URL (as you were doing)
+                const urlParams = new URLSearchParams(window.location.search);
+                const ticketId = urlParams.get('ticketId');
+
+                // 2. Automatically gather ALL form fields using FormData
+                const formData = new FormData(this);
+                const customFields = {};
+                
+                // This loop handles every field in the schema automatically
+                formData.forEach((value, key) => {
+                    customFields[key] = value;
+                });
+
+                // 3. Add product_family if it was selected (for 'product_issue' inquiry type)
+                const productFamilySelector = document.getElementById('product_family_selector');
+                if (productFamilySelector && productFamilySelector.value) {
+                    customFields.product_family = productFamilySelector.value;
+                }
+
+                // 4. Add part if it was selected (for 'product_issue' inquiry type)
+                const partSelector = document.getElementById('part_selector');
+                if (partSelector && partSelector.value) {
+                    customFields.part = partSelector.value;
+                }
+
+                // 5. Inject the inherited Ticket ID (the one we filtered out of the UI)
+                customFields.ticket_id = ticketId;
+
+                // 5.5 Auto-assign status to 'open'
+                customFields.status = 'open';
+                
+                // ──FORM VALIDATION RULES ────────────────────────────────────────────────────────
+                // To add a new rule: add an object with a `check` function and a `message`.
+                // Rules are evaluated in order; the first failure stops submission.
+                const validationRules = [
+                    {
+                        message: 'You must have a resolution method when closing a Product Issue Inquiry.',
+                        check: (fields) =>
+                            !(fields.status === 'closed' &&
+                            fields.inquiry_type === 'product_issue' &&
+                            !fields.resolution_method)
+                    }
+                    // ,{
+                    //     message: 'Example: your next rule message here.',
+                    //     check: (fields) => !(someCondition && anotherCondition)
+                    // },
+                ];
+
+                const failedRule = validationRules.find(rule => !rule.check(customFields));
+                if (failedRule) {
+                    client.invoke('notify', failedRule.message, 'error');
+                    btn.disabled = false;
+                    btn.innerText = 'Add';
+                    return;
+                }
+                // ── END VALIDATION ───────────────────────────────────────────────────────────
+
+                // 6. Construct the final payload
+                const productData = {
+                    custom_object_record: {
+                        // We'll use the serial number for the record name if it exists
+                        name: `Ticket ${ticketId} - ${customFields.serial_number || 'Product'}`,
+                        custom_object_fields: customFields
+                    }
+                };
+
+                // 7. Send to Zendesk
+                await client.request({
+                    url: `/api/v2/custom_objects/${customObjectKey}/records`,
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(productData)
+                });
+
+                // 8. Add tag to ticket for inquiry type if it doesn't already exist
+                // try {
+                //     const inquiryType = customFields.inquiry_type;
+                //     const tagName = inquiryType.replace(/_/g, '-'); // Convert underscores to hyphens for tag format
+
+                //     // Get current ticket tags
+                //     const tagsData = await client.request({
+                //         url: `/api/v2/tickets/${ticketId}/tags`,
+                //         type: 'GET'
+                //     });
+
+                //     const currentTags = tagsData.tags || [];
+                    
+                //     // Only add tag if it doesn't already exist
+                //     if (!currentTags.includes(tagName)) {
+                //         const newTags = [...currentTags, tagName];
+                //         await client.request({
+                //             url: `/api/v2/tickets/${ticketId}/tags`,
+                //             type: 'POST',
+                //             contentType: 'application/json',
+                //             data: JSON.stringify({
+                //                 tags: newTags
+                //             })
+                //         });
+                //         console.log(`Tag '${tagName}' added to ticket ${ticketId}`);
+                //     } else {
+                //         console.log(`Tag '${tagName}' already exists on ticket ${ticketId}`);
+                //     }
+                // } catch(tagError) {
+                //     console.warn('Failed to add tag to ticket:', tagError);
+                //     // Don't fail the whole operation if tagging fails
+                // }
+
+                // Success!
+                client.trigger('inquiry_added');
+                client.invoke('notify', 'Inquiry added successfully!', 'notice');
+                client.invoke('destroy');
+
+            } catch(e) {
+                console.error("Save Error:", e);
+                client.invoke('notify', 'Failed to save inquiry.', 'error');
+                btn.disabled = false;
+                btn.innerText = 'Add';
+            }
+        });
+    // Close modal on cancel
+        document.getElementById('cancel-btn').addEventListener('click', function() {
+        client.invoke('destroy');
+        });
+  });   
+  </script>
+</body>
+</html>

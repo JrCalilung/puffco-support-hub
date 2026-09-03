@@ -1,0 +1,49 @@
+{
+  "name": "Puffco Support Hub",
+  "author": {
+    "name": "Puffco IT",
+    "email": "backupsupport@puffco.com"
+  },
+  "defaultLocale": "en",
+  "private": true,
+  "location": {
+    "support": {
+      "ticket_sidebar": {
+        "url": "assets/iframe.html",
+        "flexible": true
+      }
+    }
+  },
+  "version": "1.0.0",
+  "frameworkVersion": "2.0",
+  "icon": "assets/logo.png",
+  "logo_small": "assets/logo-small.png",
+  "domainWhitelist": [
+    "txlfgsmbypgudvfbneez.supabase.co",
+    "pna3okela3.execute-api.us-west-2.amazonaws.com"
+  ],
+  "parameters": [
+    {
+      "name": "productRegistrationApiToken",
+      "type": "text",
+      "secure": true,
+      "scopes": [
+        "header"
+      ]
+    },
+    {
+      "name": "AWS_API_BASE_URL",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "APP_SHARED_SECRET",
+      "type": "text",
+      "required": true,
+      "secure": true,
+      "scopes": [
+        "header"
+      ]
+    }
+  ]
+}

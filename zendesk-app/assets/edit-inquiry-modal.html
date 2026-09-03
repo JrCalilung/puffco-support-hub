@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+  <link rel="stylesheet" href="main.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+</head>
+<body style="background-color: #fff;">
+  <div class="container-fluid p-4">
+    <h3>Edit Inquiry</h3>
+    <hr>
+    <form id="edit-inquiry-form">
+        <div id="dynamic-field-container"></div>
+
+        <div class="modal-footer-custom mt-4 d-flex justify-content-end">
+          <button type="button" id="cancel-btn" class="btn btn-outline-secondary mr-2">Cancel</button>
+          <button type="submit" id="save-btn" class="btn btn-primary">Save Changes</button>
+        </div>
+    </form>
+  </div>
+
+  <script src="https://static.zdassets.com/zendesk_app_framework_sdk/2.0/zaf_sdk.min.js"></script>
+
+  <script>
+    var client = ZAFClient.init();
+    
+    document.addEventListener('DOMContentLoaded', async function() {
+        const customObjectKey = 'inquiry';
+        const container = document.getElementById('dynamic-field-container');
+        
+        // 1. Get IDs from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const recordId = urlParams.get('recordId');
+        
+        if (!recordId) {
+            container.innerHTML = '<div class="alert alert-danger">Error: No Record ID provided.</div>';
+            return;
+        }
+
+        container.innerHTML = '<p>Loading existing data...</p>';
+
+        try {
+            // 2. Fetch Existing Record and Fields in Parallel
+            const [recordResponse, fieldData] = await Promise.all([
+                client.request({ url: `/api/v2/custom_objects/${customObjectKey}/records/${recordId}`, type: 'GET' }),
+                client.request({ url: `/api/v2/custom_objects/${customObjectKey}/fields`, type: 'GET' })
+            ]);
+
+            const existingData = recordResponse.custom_object_record.custom_object_fields;
+
+            // 3. Filter Fields (same logic as Add Modal)
+            const allAvailableFields = fieldData.custom_object_fields.filter(field => {
+                const isHidden = field.description?.toLowerCase().includes('[hidden]');
+                return field.key !== 'ticket_id' && field.active === true && !isHidden;
+            });
+
+            // Make fields globally accessible for the render functions
+            window.allAvailableFields = allAvailableFields;
+
+            // 4. Start the chain of rendering
+            const inquiryTypeField = allAvailableFields.find(f => f.key === 'inquiry_type');
+            await renderInitialUI(inquiryTypeField, existingData);
+
+        } catch (err) {
+            console.error("Initialization Error:", err);
+            container.innerHTML = '<p class="text-danger">Failed to load record.</p>';
+        }
+
+        async function renderInitialUI(typeField, existingData) {
+            container.innerHTML = `
+                <div class="form-group mt-3">
+                    <label class="font-weight-bold">${typeField.title} <span class="text-danger">*</span></label>
+                    <select class="form-control" id="inquiry_type_selector" name="inquiry_type" required disabled>
+                        ${typeField.custom_field_options.map(opt => 
+                            `<option value="${opt.value}" ${opt.value === existingData.inquiry_type ? 'selected' : ''}>${opt.name}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div id="conditional-fields"></div>
+            `;
+
+            // Trigger the dynamic field load immediately with existing data
+            const conditionalContainer = document.getElementById('conditional-fields');
+            await updateDynamicFields(existingData.inquiry_type, conditionalContainer, existingData);
+
+            // Listener for manual changes (won't fire since disabled, but kept for compatibility)
+            document.getElementById('inquiry_type_selector').addEventListener('change', function(e) {
+                updateDynamicFields(e.target.value, conditionalContainer, {});
+            });
+        }
+
+        async function updateDynamicFields(chosenType, conditionalContainer, existingData) {
+            if (chosenType === 'product_issue') {
+                await renderProductUI(conditionalContainer, existingData);
+            } else {
+                await renderFieldsForType(chosenType, conditionalContainer, existingData);
+            }
+        }
+
+        async function renderProductUI(targetDiv, existingData) {
+            const productFamilyField = window.allAvailableFields.find(f => f.key === 'product_family');
+            
+            targetDiv.innerHTML = `
+                <div class="form-group mt-3">
+                    <label class="font-weight-bold">${productFamilyField.title} <span class="text-danger">*</span></label>
+                    <select class="form-control" id="product_family_selector" required>
+                        <option value="" disabled>Select Family...</option>
+                        ${productFamilyField.custom_field_options.map(opt => 
+                            `<option value="${opt.value}" ${opt.value === existingData.product_family ? 'selected' : ''}>${opt.name}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div id="part-selector-container"></div>
+                <div id="remaining-fields-container"></div>
+            `;
+
+            const partContainer = document.getElementById('part-selector-container');
+            const remainingFieldsContainer = document.getElementById('remaining-fields-container');
+
+            // Pre-load Parts if family exists
+            if (existingData.product_family) {
+                window.selectedProductFamily = existingData.product_family;
+                await renderPartSelector(existingData.product_family, partContainer, remainingFieldsContainer, existingData);
+            }
+
+            document.getElementById('product_family_selector').addEventListener('change', async function() {
+                window.selectedProductFamily = this.value;
+                // Capture current form values before re-rendering part/issue
+                const currentFormData = captureCurrentFormValues();
+                // Clear the part field so the dropdown is empty
+                currentFormData.part = '';
+                await renderPartSelector(this.value, partContainer, remainingFieldsContainer, currentFormData);
+            });
+        }
+        
+        // Helper to capture all current form values
+        function captureCurrentFormValues() {
+            const formData = new FormData(document.getElementById('edit-inquiry-form'));
+            const values = {};
+            formData.forEach((value, key) => { values[key] = value; });
+            return values;
+        }
+
+        async function renderPartSelector(familyId, targetDiv, remainingFieldsContainer, existingData) {
+              const partRecords = await fetchAllCustomObjectRecords('product');
+              let filteredParts = partRecords.filter(rec => 
+                  rec.custom_object_fields.product_family === familyId
+              );
+            // Sort by item_type, then by name, but put 'Other' at the bottom of each group
+            filteredParts = filteredParts.sort((a, b) => {
+                const aType = a.custom_object_fields.item_type || '';
+                const bType = b.custom_object_fields.item_type || '';
+                if (aType !== bType) {
+                    return aType.localeCompare(bType);
+                }
+                const aName = a.name || '';
+                const bName = b.name || '';
+                const aIsOther = /other/i.test(aName);
+                const bIsOther = /other/i.test(bName);
+                if (aIsOther && !bIsOther) return 1;
+                if (!aIsOther && bIsOther) return -1;
+                return aName.localeCompare(bName);
+            });
+
+            targetDiv.innerHTML = `
+                <div class="form-group mt-3">
+                    <label class="font-weight-bold">Part <span class="text-danger">*</span></label>
+                    <select class="form-control" id="part_selector" required>
+                        <option value="" disabled ${!existingData.part ? 'selected' : ''}>Select Part...</option>
+                        ${filteredParts.map(part => `<option value="${part.id}" ${part.id === existingData.part ? 'selected' : ''}>${part.name}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+
+            // If we have an existing part, load its item_type to handle the device/battery visibility
+            if (existingData.part) {
+                const partData = await client.request({ url: `/api/v2/custom_objects/product/records/${existingData.part}`, type: 'GET' });
+                window.selectedPartItemType = partData.custom_object_record.custom_object_fields.item_type;
+                await renderFieldsForType('product_issue', remainingFieldsContainer, existingData);
+            }
+
+            // Attach change listener for part selector
+            const partSelector = document.getElementById('part_selector');
+            partSelector.addEventListener('change', async function() {
+                const partData = await client.request({ url: `/api/v2/custom_objects/product/records/${this.value}`, type: 'GET' });
+                window.selectedPartItemType = partData.custom_object_record.custom_object_fields.item_type;
+                // Capture current form values - this preserves all fields while issue gets re-rendered
+                const currentFormData = captureCurrentFormValues();
+                await renderFieldsForType('product_issue', remainingFieldsContainer, currentFormData);
+            });
+        }
+
+        async function renderFieldsForType(chosenType, container, existingData) {
+            // Show loading message while building schema
+            container.innerHTML = `
+                <div class="form-group mt-3">
+                    <div class="alert alert-info" role="alert">
+                        <div class="spinner-border spinner-border-sm mr-2" role="status" style="display: inline-block;">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+                        Loading Fields...
+                    </div>
+                </div>
+            `;
+
+            let filteredFields = window.allAvailableFields.filter(field => {
+                if (['inquiry_type', 'ticket_id', 'product_family', 'part'].includes(field.key)) return false;
+                const desc = field.description?.toLowerCase() || '';
+                return desc.includes('[visibility:global]') || desc.includes(`[visibility:${chosenType.toLowerCase()}]`);
+            });
+
+            // Battery/Base filtering logic
+            if (chosenType === 'product_issue' && ['battery', 'base', 'travel_glass'].includes(window.selectedPartItemType)) {
+                filteredFields = filteredFields.filter(f => !['device', 'device_serial_number'].includes(f.key));
+            }
+
+            const schema = await buildDynamicSchema(filteredFields);
+            renderDynamicForm(schema, container, existingData);
+        }
+
+        // Helper to fetch all paginated records for a custom object (cursor pagination)
+        async function fetchAllCustomObjectRecords(objType) {
+            const all = [];
+            let afterCursor = undefined;
+            const pageSize = 100;
+
+            do {
+                const url = `/api/v2/custom_objects/${objType}/records?page[size]=${pageSize}` + (afterCursor ? `&page[after]=${afterCursor}` : '');
+                const res = await client.request({ url, type: 'GET' });
+                all.push(...(res.custom_object_records || []));
+                afterCursor = res.meta?.after_cursor;
+            } while (afterCursor);
+
+            return all;
+        }
+
+        // --- Logic Shared with Add Modal but adapted for Value Injecting ---
+
+        async function buildDynamicSchema(visibleFields) {
+            return Promise.all(visibleFields.map(async (field) => {
+                const desc = (field.description || '').toLowerCase();
+                const base = { id: field.id, key: field.key, label: field.title, description: field.description, required: field.required, searchable: desc.includes('[searchable]') };
+
+                if (field.type === 'dropdown') {
+                    return { ...base, renderType: 'select', options: field.custom_field_options.map(o => ({ value: o.value, label: o.name })) };
+                }
+                
+                if (field.type === 'lookup') {
+                    const objType = field.relationship_target_type.replace('zen:custom_object:', '');
+                    let records = await fetchAllCustomObjectRecords(objType);
+                    
+                    // Filter Device Lookup
+                    if (field.key === 'device' && window.selectedProductFamily) {
+                        const validTypes = ['base', 'battery', 'hash_vaporizer'];
+                        records = records.filter(r => validTypes.includes(r.custom_object_fields.item_type) && r.custom_object_fields.product_family === window.selectedProductFamily);
+                        // Sort by item_type, then by name, but put 'Other' at the bottom of each group
+                        records = records.sort((a, b) => {
+                            const aType = a.custom_object_fields.item_type || '';
+                            const bType = b.custom_object_fields.item_type || '';
+                            if (aType !== bType) {
+                                return aType.localeCompare(bType);
+                            }
+                            const aName = a.name || '';
+                            const bName = b.name || '';
+                            const aIsOther = /other/i.test(aName);
+                            const bIsOther = /other/i.test(bName);
+                            if (aIsOther && !bIsOther) return 1;
+                            if (!aIsOther && bIsOther) return -1;
+                            return aName.localeCompare(bName);
+                        });
+                    }
+
+                    // Filter Issue lookup by product family and matching item_type
+                    if (field.key === 'issue') {
+                        if (window.selectedProductFamily) {
+                            records = records.filter(r => r.custom_object_fields.product_family === window.selectedProductFamily);
+                        }
+
+                        const getIssueItemType = (rec) => rec.custom_object_fields?.item_type || rec.custom_object_fields?.issue_code?.item_type;
+                        if (window.selectedPartItemType) {
+                            records = records.filter(r => getIssueItemType(r) === window.selectedPartItemType);
+                        }
+                        // Sort by item_type, then by name, but put 'Other' at the bottom of each group
+                        records = records.sort((a, b) => {
+                            const aType = getIssueItemType(a) || '';
+                            const bType = getIssueItemType(b) || '';
+                            if (aType !== bType) {
+                                return aType.localeCompare(bType);
+                            }
+                            const aName = a.name || '';
+                            const bName = b.name || '';
+                            const aIsOther = /other/i.test(aName);
+                            const bIsOther = /other/i.test(bName);
+                            if (aIsOther && !bIsOther) return 1;
+                            if (!aIsOther && bIsOther) return -1;
+                            return aName.localeCompare(bName);
+                        });
+                    }
+
+                    // Filter inquiry_subtype by the selected inquiry_type
+                    if (field.key === 'inquiry_subtype') {
+                        const selectedInquiryType = document.getElementById('inquiry_type_selector')?.value;
+                        if (selectedInquiryType) {
+                            records = records.filter(r => r.custom_object_fields.inquiry_type === selectedInquiryType);
+                        }
+                    }
+
+                    return { ...base, renderType: 'select', options: records.map(r => ({ value: r.id, label: r.name })) };
+                }
+                return { ...base, renderType: field.type === 'textarea' ? 'textarea' : 'text' };
+            }));
+        }
+
+        function renderDynamicForm(schema, targetDiv, existingData) {
+            targetDiv.innerHTML = '';
+            const isStatusClosed = existingData.status === 'closed';
+            
+            // Extract issue and status fields
+            const issueFieldIndex = schema.findIndex(field => field.key === 'issue');
+            const statusFieldIndex = schema.findIndex(field => field.key === 'status');
+            const issueField = issueFieldIndex !== -1 ? schema[issueFieldIndex] : null;
+            const statusField = statusFieldIndex !== -1 ? schema[statusFieldIndex] : null;
+            const remainingSchema = schema.filter((f, idx) => idx !== issueFieldIndex && idx !== statusFieldIndex);
+            
+            // Render issue field first (no border)
+            if (issueField) {
+                const issueContainer = document.createElement('div');
+                issueContainer.id = 'issue-field-container';
+                issueContainer.className = 'mb-3';
+                
+                const val = existingData[issueField.key] || '';
+                const formGroup = document.createElement('div');
+                formGroup.className = 'form-group';
+                
+                let inputHtml = '';
+                if (issueField.renderType === 'select') {
+                    inputHtml = `<select class="form-control" id="${issueField.key}" name="${issueField.key}" ${issueField.required ? 'required' : ''}>
+                        <option value="">Select...</option>
+                        ${issueField.options.map(opt => `<option value="${opt.value}" ${opt.value == val ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                    </select>`;
+                } else {
+                    inputHtml = `<input type="text" class="form-control" id="${issueField.key}" name="${issueField.key}" value="${val}" ${issueField.required ? 'required' : ''}>`;
+                }
+                
+                formGroup.innerHTML = `<label class="font-weight-bold">${issueField.label}</label>` + inputHtml;
+                issueContainer.appendChild(formGroup);
+                targetDiv.appendChild(issueContainer);
+                
+                if (issueField.searchable) $(`#${issueField.key}`).select2({ width: '100%' });
+            }
+            
+            // Render status field with border-bottom
+            if (statusField) {
+                const statusContainer = document.createElement('div');
+                statusContainer.id = 'status-field-container';
+                statusContainer.className = 'mb-3 pb-3 border-bottom';
+                
+                const val = existingData[statusField.key] || '';
+                const formGroup = document.createElement('div');
+                formGroup.className = 'form-group';
+                
+                let inputHtml = '';
+                if (statusField.renderType === 'select') {
+                    inputHtml = `<select class="form-control" id="${statusField.key}" name="${statusField.key}" ${statusField.required ? 'required' : ''}>
+                        <option value="">Select...</option>
+                        ${statusField.options.map(opt => `<option value="${opt.value}" ${opt.value == val ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                    </select>`;
+                } else {
+                    inputHtml = `<input type="text" class="form-control" id="${statusField.key}" name="${statusField.key}" value="${val}" ${statusField.required ? 'required' : ''}>`;
+                }
+                
+                formGroup.innerHTML = `<label class="font-weight-bold">${statusField.label}</label>` + inputHtml;
+                statusContainer.appendChild(formGroup);
+                targetDiv.appendChild(statusContainer);
+                
+                if (statusField.searchable) $(`#${statusField.key}`).select2({ width: '100%' });
+            }
+            
+            // Group remaining fields by section
+            const sections = {};
+            const unsectionedFields = [];
+            
+            remainingSchema.forEach(field => {
+                // Check if field has a section marker in its description
+                const sectionMatch = (field.description || '').match(/\[section:([^\]]+)\]/i);
+                if (sectionMatch) {
+                    const sectionName = sectionMatch[1];
+                    if (!sections[sectionName]) {
+                        sections[sectionName] = [];
+                    }
+                    sections[sectionName].push(field);
+                } else {
+                    unsectionedFields.push(field);
+                }
+            });
+            
+            // Render unsectioned fields
+            unsectionedFields.forEach(field => {
+                const val = existingData[field.key] || '';
+                const formGroup = document.createElement('div');
+                formGroup.className = 'form-group mt-3';
+                
+                // Disable all fields if status is closed
+                const isDisabled = isStatusClosed;
+                const disabledAttr = isDisabled ? 'disabled' : '';
+                
+                let inputHtml = '';
+                if (field.renderType === 'select') {
+                    inputHtml = `<select class="form-control" id="${field.key}" name="${field.key}" ${field.required ? 'required' : ''} ${disabledAttr}>
+                        <option value="">Select...</option>
+                        ${field.options.map(opt => `<option value="${opt.value}" ${opt.value == val ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                    </select>`;
+                } else {
+                    inputHtml = `<input type="text" class="form-control" id="${field.key}" name="${field.key}" value="${val}" ${field.required ? 'required' : ''} ${disabledAttr}>`;
+                }
+
+                formGroup.innerHTML = `<label class="font-weight-bold">${field.label}</label>` + inputHtml;
+                targetDiv.appendChild(formGroup);
+                if (field.searchable) $(`#${field.key}`).select2({ width: '100%' });
+            });
+            
+            // Render sectioned fields
+            Object.entries(sections).forEach(([sectionName, fields]) => {
+                const sectionContainer = document.createElement('div');
+                sectionContainer.className = 'section-container';
+                
+                const sectionHeader = document.createElement('div');
+                sectionHeader.className = 'section-header';
+                sectionHeader.innerHTML = `
+                    <h5 class="section-header-title">${sectionName}</h5>
+                    <span class="section-toggle-icon collapsed">▼</span>
+                `;
+                
+                const sectionContent = document.createElement('div');
+                sectionContent.className = 'section-content collapsed';
+                
+                // Render fields within the section
+                fields.forEach(field => {
+                    const val = existingData[field.key] || '';
+                    const formGroup = document.createElement('div');
+                    formGroup.className = 'form-group mt-3';
+                    
+                    // Disable all fields if status is closed
+                    const isDisabled = isStatusClosed;
+                    const disabledAttr = isDisabled ? 'disabled' : '';
+                    
+                    let inputHtml = '';
+                    if (field.renderType === 'select') {
+                        inputHtml = `<select class="form-control" id="${field.key}" name="${field.key}" ${field.required ? 'required' : ''} ${disabledAttr}>
+                            <option value="">Select...</option>
+                            ${field.options.map(opt => `<option value="${opt.value}" ${opt.value == val ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                        </select>`;
+                    } else {
+                        inputHtml = `<input type="text" class="form-control" id="${field.key}" name="${field.key}" value="${val}" ${field.required ? 'required' : ''} ${disabledAttr}>`;
+                    }
+
+                    formGroup.innerHTML = `<label class="font-weight-bold">${field.label}</label>` + inputHtml;
+                    sectionContent.appendChild(formGroup);
+                    if (field.searchable) $(`#${field.key}`).select2({ width: '100%' });
+                });
+                
+                sectionContainer.appendChild(sectionHeader);
+                sectionContainer.appendChild(sectionContent);
+                targetDiv.appendChild(sectionContainer);
+                
+                // Add click handler for collapse/expand
+                sectionHeader.addEventListener('click', function() {
+                    const icon = this.querySelector('.section-toggle-icon');
+                    sectionContent.classList.toggle('collapsed');
+                    icon.classList.toggle('collapsed');
+                });
+            });
+            
+            // Also disable the product_family and part selectors if status is closed
+            if (isStatusClosed) {
+                const productFamilySelector = document.getElementById('product_family_selector');
+                const partSelector = document.getElementById('part_selector');
+                if (productFamilySelector) productFamilySelector.disabled = true;
+                if (partSelector) partSelector.disabled = true;
+            }
+        }
+
+
+
+        // 5. UPDATE SUBMIT LOGIC (PUT instead of POST)
+        document.getElementById('edit-inquiry-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('save-btn');
+            btn.disabled = true;
+            // btn.innerText = 'Updating...';
+
+            try {
+                const formData = new FormData(this);
+                const customFields = {};
+                formData.forEach((value, key) => { customFields[key] = value; });
+
+                // Manually add selectors that might be outside the conditional loop
+                if (document.getElementById('product_family_selector')) customFields.product_family = document.getElementById('product_family_selector').value;
+                if (document.getElementById('part_selector')) customFields.part = document.getElementById('part_selector').value;
+                console.log(formData);
+
+              //  ── VALIDATION RULES ────────────────────────────────────────────────────
+        //To add a new rule: add an object with a `check` function and a `message`.
+        //check() should return true when data is VALID, false when it should be BLOCKED.
+        //Rules are evaluated in order; the first failure stops submission.
+            
+            const validationRules = [
+                    {
+                        message: 'You must have a resolution method when closing a Product Issue Inquiry.',
+                        check: (fields) =>
+                            !(fields.status === 'closed' &&
+                            fields.inquiry_type === 'product_issue' &&
+                            !fields.resolution_method)
+                    },
+                    // {
+                    //     message: 'Your next rule message here.',
+                    //     check: (fields) => !(someCondition && anotherCondition)
+                    // },
+                ];
+
+                const failedRule = validationRules.find(rule => !rule.check(customFields));
+                if (failedRule) {
+                    client.invoke('notify', failedRule.message, 'error');
+                    btn.disabled = false;
+                    btn.innerText = 'Save Changes';
+                    return;
+                }
+                
+        // ── END VALIDATION ───────────────────────────────────────────────────────
+                await client.request({
+                    url: `/api/v2/custom_objects/${customObjectKey}/records/${recordId}`,
+                    type: 'PUT',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ custom_object_record: { custom_object_fields: customFields } })
+                });
+                
+                client.trigger('inquiry_added'); // Notify parent to refresh
+                client.invoke('notify', 'Inquiry updated successfully!');
+                btn.disabled = false;
+                btn.innerText = 'Save Changes';
+                console.log(btn.innerText);
+                client.invoke('destroy');
+                
+            } catch (err) {
+                console.error("Update Error:", err);
+                btn.disabled = false;
+                btn.innerText = 'Save Changes';
+            }
+        });
+
+        document.getElementById('cancel-btn').addEventListener('click', () => client.invoke('destroy'));
+    });
+  </script>
+</body>
+</html>

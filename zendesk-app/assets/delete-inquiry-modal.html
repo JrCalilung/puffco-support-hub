@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+</head>
+<body style="background-color: #fff;">
+  <div class="container-fluid p-4 text-center">
+    <h4 class="text-danger">Delete Record?</h4>
+    <p>Are you sure you want to remove <strong><span id="inquiry-name-display">this inquiry</span></strong> from this ticket?</p>
+    <p class="small text-muted">This action cannot be undone.</p>
+
+    <div class="d-flex justify-content-center mt-4">
+      <button type="button" id="cancel-delete" class="btn btn-outline-secondary mr-2">Cancel</button>
+      <button type="button" id="confirm-delete" class="btn btn-danger">Confirm Delete</button>
+    </div>
+  </div>
+
+  <script src="https://static.zdassets.com/zendesk_app_framework_sdk/2.0/zaf_sdk.min.js"></script>
+  <script>
+    const client = ZAFClient.init();
+    const urlParams = new URLSearchParams(window.location.search);
+    const recordId = urlParams.get('recordId');
+    console.log(`recordID: ${recordId}`);
+    const inquiryName = urlParams.get('name');
+
+    // Show the name of the product being deleted
+    document.getElementById('inquiry-name-display').innerText = inquiryName;
+
+    document.getElementById('confirm-delete').addEventListener('click', async function() {
+      this.disabled = true;
+      this.innerText = 'Deleting...';
+      const customObjectKey = 'inquiry'; // Adjust if needed
+
+      try {
+        await client.request({
+          url: `/api/v2/custom_objects/${customObjectKey}/records/${recordId}`,
+          type: 'DELETE'
+        });
+
+        client.trigger('inquiry_deleted'); // Signal the sidebar to refresh
+        client.invoke('notify', 'Issue removed from ticket.', 'notice');
+        client.invoke('destroy');
+      } catch (e) {
+        console.error("Delete Error:", e);
+        client.invoke('notify', 'Failed to delete inquiry.', 'error');
+        this.disabled = false;
+        this.innerText = 'Confirm Delete';
+      }
+    });
+
+    document.getElementById('cancel-delete').addEventListener('click', () => client.invoke('destroy'));
+  </script>
+</body>
+</html>
