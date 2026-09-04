@@ -1,6 +1,8 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 // RETURN LABEL MODULE
 // Auto-populates from inquiry record, falls back to ticket requester
+// Macro auto-apply: fetches matching USPS return macro based on part item_type
+// + product_family, injects content into reply composer with label URL appended
 // ═══════════════════════════════════════════════════════════════════════════════
 
 var RETURN_LABEL_PRODUCTS = {
@@ -34,6 +36,90 @@ var RETURN_LABEL_PRODUCTS = {
   }
 };
 
+// ─── Macro Map: item_type|product_family → Zendesk Macro ID ─────────────────
+// Source: Return Instructions::(USPS) active macros — confirmed Sept 2026
+var PART_MACRO_MAP = {
+  // Peak / Peak Pro Base
+  'base|peak':              '360164836813',
+  'base|peak_v2':           '360164836813',
+  'base|peak_pro':          '360164836813',
+  'base|peak_pro_v2':       '360164836813',
+
+  // Peak / Peak Pro Base + Charger
+  'charger|peak_pro':       '1260811777889',
+  'charger|peak_pro_v2':    '1260811777889',
+
+  // Power Dock
+  'charger|peak_pro_power_dock': '1500001856001',
+
+  // Peak Pro Chamber
+  'chamber|peak_pro':       '360194809614',
+  'chamber|peak_pro_v2':    '360194809614',
+  'chamber|peak_v2':        '360194809614',
+  'chamber|peak':           '360194809614',
+
+  // Peak Pro Link
+  'link|peak_pro_v2':       '48595166512667',
+
+  // Peak / Peak Pro Glass (also covers Proxy glass and travel glass per CS confirmation)
+  'glass|peak':             '1500001902762',
+  'glass|peak_v2':          '1500001902762',
+  'glass|peak_pro':         '1500001902762',
+  'glass|peak_pro_v2':      '1500001902762',
+  'glass|proxy':            '1500001902762',
+  'glass|proxy_v2':         '1500001902762',
+  'ryan_fitt_glass|peak':        '1500001902762',
+  'ryan_fitt_glass|peak_v2':     '1500001902762',
+  'ryan_fitt_glass|peak_pro':    '1500001902762',
+  'ryan_fitt_glass|peak_pro_v2': '1500001902762',
+  'ryan_fitt_glass|proxy':       '1500001902762',
+  'wizard_glass|proxy':          '1500001902762',
+  'wizard_glass|proxy_v2':       '1500001902762',
+  'bub_glass|proxy':             '1500001902762',
+  'bub_glass|proxy_v2':          '1500001902762',
+  'terrapipe_glass|proxy':       '1500001902762',
+  'ripple_glass|proxy':          '1500001902762',
+  'ryan_fitt_glass|proxy_v2':    '1500001902762',
+  'droplet_glass|proxy':         '1500001902762',
+
+  // Proxy Travel Pipe → Peak/Peak Pro Glass (CS confirmed Sept 2026)
+  'travel_glass|proxy':     '1500001902762',
+  'travel_glass|peak_pro':  '1500001902762',
+
+  // Proxy Base
+  'base|proxy':             '6797769672731',
+  'base|proxy_v2':          '6797769672731',
+
+  // Proxy Chamber
+  'chamber|proxy':          '6797874930459',
+  'chamber|proxy_v2':       '6797874930459',
+
+  // Hot Knife
+  'heated_loading_tool|heated_loading_tool':    '30796698761627',
+  'heated_loading_tool|heated_loading_tool_v2': '30796698761627',
+
+  // Pivot — base IS the battery
+  'base|pivot':             '30347462352411',
+  // Pivot Chamber
+  'chamber|pivot':          '30347555581339',
+
+  // Plus Battery (base)
+  'base|plus':              '156377188',
+  'base|plus_v3':           '19854437900955',
+
+  // Plus Chamber (original maps to 3.0 — confirmed same size Sept 2026)
+  'chamber|plus':           '19854395360411',
+  'chamber|plus_v3':        '19854395360411',
+
+  // Power Dock
+  'charger|peak_pro':       '1500001856001',
+};
+
+function _rlGetMacroId(itemType, productFamily) {
+  if (!itemType || !productFamily) return null;
+  return PART_MACRO_MAP[itemType + '|' + productFamily] || null;
+}
+
 function _rlFamilyToProductKey(family) {
   if (!family) return '';
   var f = family.toLowerCase();
@@ -46,11 +132,11 @@ function _rlFamilyToProductKey(family) {
   return '';
 }
 
-var _rlEventsbound = false;
-var _rlInquiryType = '';
+var _rlEventsbound  = false;
+var _rlInquiryType  = '';
+var _rlMacroId      = null;  // Set during load, used after label generation
 
 function initReturnLabelModule(client) {
-  // Bind events once only
   if (!_rlEventsbound) {
     _rlEventsbound = true;
 
@@ -64,12 +150,12 @@ function initReturnLabelModule(client) {
     if (refreshBtn) refreshBtn.addEventListener('click', function() { _rlLoad(client); });
   }
 
-  // Load inquiry data every time tab is opened
   _rlLoad(client);
 }
 
 async function _rlLoad(client) {
   _rlSetBanner('Loading customer info from inquiry...', 'info');
+  _rlMacroId = null;
 
   try {
     var ticketData = await client.get('ticket.id');
@@ -85,14 +171,30 @@ async function _rlLoad(client) {
     });
 
     var records = (response.custom_object_records || []);
-    // Prefer open inquiry, fallback to most recent
-    var record = records.find(function(r) {
+    var record  = records.find(function(r) {
       return r.custom_object_fields.status === 'open';
     }) || records[0];
 
     if (record) {
       var f = record.custom_object_fields;
       _rlFillFields(f);
+
+      // ── Fetch part record to resolve macro ──────────────────────────────────
+      if (f.part) {
+        try {
+          var partResp = await client.request({
+            url:  '/api/v2/custom_objects/product/records/' + f.part,
+            type: 'GET'
+          });
+          var pf        = partResp.custom_object_record.custom_object_fields;
+          var itemType  = pf.item_type     || '';
+          var family    = pf.product_family || '';
+          _rlMacroId    = _rlGetMacroId(itemType, family);
+          console.log('Return label macro resolved:', itemType, family, '→', _rlMacroId);
+        } catch(e) {
+          console.warn('Could not resolve part record for macro lookup:', e);
+        }
+      }
 
       if (f.shipping_address_line_1) {
         _rlSetBanner('✓ Information auto-populated from the Inquiry Tracker. Please review before generating.', 'success');
@@ -118,23 +220,22 @@ async function _rlFallbackToTicket(client) {
 }
 
 function _rlFillFields(f) {
-  // Store inquiry_type for use in payload
   _rlInquiryType = f.inquiry_type || '';
 
   var map = {
-    'rl-name':     f.customer_name             || '',
-    'rl-email':    f.email                     || '',
-    'rl-address1': f.shipping_address_line_1   || '',
-    'rl-address2': f.shipping_address_line_2   || '',
-    'rl-city':     f.city                      || '',
-    'rl-state':    f.state                     || '',
-    'rl-zip':      f.zip                       || ''
+    'rl-name':     f.customer_name           || '',
+    'rl-email':    f.email                   || '',
+    'rl-address1': f.shipping_address_line_1 || '',
+    'rl-address2': f.shipping_address_line_2 || '',
+    'rl-city':     f.city                    || '',
+    'rl-state':    f.state                   || '',
+    'rl-zip':      f.zip                     || ''
   };
   for (var id in map) {
     var el = document.getElementById(id);
     if (el) el.value = map[id];
   }
-  // Auto-select product from product_family
+
   var productKey = _rlFamilyToProductKey(f.product_family || '');
   var sel = document.getElementById('rl-product');
   if (sel && productKey) {
@@ -146,17 +247,16 @@ function _rlFillFields(f) {
 function _rlSetBanner(msg, type) {
   var el = document.getElementById('rl-banner');
   if (!el) return;
-  el.className = 'rl-banner rl-banner-' + (type || 'info');
-  el.textContent = msg;
+  el.className    = 'rl-banner rl-banner-' + (type || 'info');
+  el.textContent  = msg;
   el.style.display = 'block';
 }
 
 function _rlOnProductChange() {
-  var key       = document.getElementById('rl-product').value;
-  var infoEl    = document.getElementById('rl-product-info');
-  var customEl  = document.getElementById('rl-custom-fields');
+  var key      = document.getElementById('rl-product').value;
+  var infoEl   = document.getElementById('rl-product-info');
+  var customEl = document.getElementById('rl-custom-fields');
 
-  // Hide both first
   infoEl.style.display   = 'none';
   infoEl.innerHTML       = '';
   customEl.style.display = 'none';
@@ -179,15 +279,15 @@ function _rlOnProductChange() {
 
 function _rlSetStatus(msg, type) {
   var el = document.getElementById('rl-status');
-  el.className = 'hub-status ' + (type || 'info');
-  el.textContent = msg;
+  el.className    = 'hub-status ' + (type || 'info');
+  el.textContent  = msg;
   el.style.display = 'block';
 }
 
 function _rlClearStatus() {
   var el = document.getElementById('rl-status');
-  el.className = 'hub-status';
-  el.textContent = '';
+  el.className    = 'hub-status';
+  el.textContent  = '';
   el.style.display = 'none';
 }
 
@@ -222,7 +322,7 @@ async function _rlGenerate(client) {
   }
 
   var btn = document.getElementById('rl-generate-btn');
-  btn.disabled = true;
+  btn.disabled    = true;
   btn.textContent = 'Generating...';
   _rlSetStatus('Generating return label — please wait...', 'info');
 
@@ -232,13 +332,12 @@ async function _rlGenerate(client) {
     var apiBase  = settings.AWS_API_BASE_URL;
     if (!apiBase) throw new Error('AWS_API_BASE_URL not configured. Contact IT.');
 
-    var ticketData = await client.get(['ticket.id', 'ticket.requester.email']);
-    var pKey       = document.getElementById('rl-product').value;
-    var p          = RETURN_LABEL_PRODUCTS[pKey];
-
-    // Handle custom weight and dimensions
-    var weightOz = p.weight_oz;
+    var ticketData   = await client.get(['ticket.id', 'ticket.requester.email']);
+    var pKey         = document.getElementById('rl-product').value;
+    var p            = RETURN_LABEL_PRODUCTS[pKey];
+    var weightOz     = p.weight_oz;
     var productLabel = p.label;
+
     if (pKey === 'custom') {
       weightOz     = parseInt(document.getElementById('rl-custom-weight').value);
       var l        = document.getElementById('rl-custom-length').value;
@@ -271,10 +370,9 @@ async function _rlGenerate(client) {
     var result = await resp.json();
     if (!resp.ok) throw new Error(result.error || 'Failed to generate label.');
 
-    // Pre-populate reply composer with customer message
-    if (result.customer_message) {
-      await client.invoke('ticket.comment.appendText', result.customer_message);
-    }
+    // ── Macro + label URL injection ────────────────────────────────────────────
+    var labelUrl = result.customer_label_url || result.customer_message || '';
+    await _rlInjectMacroWithLabel(client, labelUrl, ticketData['ticket.id']);
 
     client.invoke('notify', '✓ Return label generated! Tracking: ' + result.tracking_number, 'notice');
     _rlSetStatus(
@@ -290,7 +388,86 @@ async function _rlGenerate(client) {
     client.invoke('notify', 'Failed to generate label: ' + (e.message || 'Unknown error.'), 'alert');
     _rlSetStatus('Failed: ' + (e.message || 'Unknown error.') + ' Try again or contact IT.', 'error');
   } finally {
-    btn.disabled = false;
+    btn.disabled    = false;
     btn.textContent = 'Generate Return Label';
+  }
+}
+
+// ─── Macro fetch + label URL injection ────────────────────────────────────────
+
+async function _rlInjectMacroWithLabel(client, labelUrl, ticketId) {
+  try {
+    var commentHtml = '';
+
+    if (_rlMacroId) {
+      // Fetch macro content from Zendesk
+      var macroResp = await client.request({
+        url:  '/api/v2/macros/' + _rlMacroId + '.json',
+        type: 'GET'
+      });
+
+      var actions = (macroResp.macro && macroResp.macro.actions) || [];
+
+      // Prefer HTML action, fall back to plain text action
+      var commentAction = actions.find(function(a) {
+        return a.field === 'comment_value_html';
+      }) || actions.find(function(a) {
+        return a.field === 'comment_value';
+      });
+
+      if (commentAction && commentAction.value) {
+        commentHtml = commentAction.value;
+
+        // Resolve {{ticket.requester.first_name}} placeholder
+        try {
+          var requesterData = await client.get('ticket.requester.name');
+          var fullName      = requesterData['ticket.requester.name'] || '';
+          var firstName     = fullName.split(' ')[0] || fullName;
+          commentHtml = commentHtml.replace(/\{\{ticket\.requester\.first_name\}\}/gi, firstName);
+          commentHtml = commentHtml.replace(/\{\{ticket\.requester\.name\}\}/gi, fullName);
+        } catch(nameErr) {
+          console.warn('Could not resolve requester name:', nameErr);
+          commentHtml = commentHtml.replace(/\{\{ticket\.requester\.first_name\}\}/gi, '');
+          commentHtml = commentHtml.replace(/\{\{ticket\.requester\.name\}\}/gi, '');
+        }
+
+        // Replace "attached to this email" label reference with actual download link
+        commentHtml = commentHtml.replace(
+          /pre-paid shipping label attached to this email/gi,
+          'pre-paid shipping label linked below'
+        );
+
+        // Append label URL as a clearly marked block at the end
+        if (labelUrl) {
+          commentHtml += '<br><br><strong>Return Label Download Link:</strong><br>' +
+            '<a href="' + labelUrl + '">' + labelUrl + '</a>';
+        }
+      }
+    }
+
+    // Fallback — no macro, just inject label URL as HTML
+    if (!commentHtml && labelUrl) {
+      commentHtml = '<a href="' + labelUrl + '">' + labelUrl + '</a>';
+    }
+
+    if (commentHtml) {
+      // Switch composer to public reply first
+      try { await client.set('ticket.comment.type', 'publicReply'); } catch(e) {}
+      // Inject as HTML so formatting renders correctly
+      await client.invoke('ticket.comment.appendHtml', commentHtml);
+    }
+
+  } catch(e) {
+    // Non-fatal — label was still generated, macro inject just failed
+    console.warn('Macro inject failed, falling back to label URL only:', e);
+    if (labelUrl) {
+      try {
+        try { await client.set('ticket.comment.type', 'publicReply'); } catch(e) {}
+        await client.invoke('ticket.comment.appendHtml',
+          '<a href="' + labelUrl + '">' + labelUrl + '</a>');
+      } catch(e2) {
+        console.warn('Label URL inject also failed:', e2);
+      }
+    }
   }
 }
